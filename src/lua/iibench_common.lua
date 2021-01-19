@@ -19,6 +19,7 @@
 
 
 require("internal/thread_groups")
+require("internal/index_stat")
 
 function init()
    assert(event ~= nil,
@@ -57,8 +58,6 @@ sysbench.cmdline.options = {
       {"Min size of data in data column", 10},
    data_random_pct =
       {"Percentage of row that has random data", 50},
-   no_inserts =
-      {"When True don't do inserts", false},
    secondary_at_end =
       {"Create secondary index at end", false},
    insert_rate =
@@ -70,10 +69,14 @@ sysbench.cmdline.options = {
 -- Table parameters
    table_size =
       {"Maximum number of rows in table", 10000},
+
+-- todofix Do we want to delete rows?
    with_max_table_rows =
       {"When True, allow table to grow to max_table_rows, then delete oldest", false},
    num_secondary_indexes =
       {"Number of secondary indexes (0 to 3)", 3},
+
+-- todofix test partions
    num_partitions =
       {"Use range partitioning when not 0", 0},
    rows_per_partition =
@@ -127,21 +130,41 @@ function cmd_warmup()
    con:query("SET tmp_table_size=2*1024*1024*1024")
    con:query("SET max_heap_table_size=2*1024*1024*1024")
 
+
    for i = sysbench.tid % sysbench.opt.threads + 1, sysbench.opt.tables,
    sysbench.opt.threads do
       local t = "sbtest" .. i
       print("Preloading table " .. t)
+--[[
       con:query("ANALYZE TABLE sbtest" .. i)
+
       con:query(string.format(
                    "SELECT AVG(price) FROM " ..
                       "(SELECT * FROM %s FORCE KEY (%s_marketsegment) " ..
                       "LIMIT %u) t",
                    t, t, sysbench.opt.table_size))
+
+      con:query(string.format(
+                   "SELECT AVG(price) FROM " ..
+                      "(SELECT * FROM %s FORCE KEY (%s_registersegment) " ..
+                      "LIMIT %u) t",
+                   t, t, sysbench.opt.table_size))
+
+      con:query(string.format(
+                   "SELECT AVG(price) FROM " ..
+                      "(SELECT * FROM %s FORCE KEY (%s_pdc) " ..
+                      "LIMIT %u) t",
+                   t, t, sysbench.opt.table_size))
+        ]]
       con:query(string.format(
                    "SELECT COUNT(*) FROM " ..
                       "(SELECT * FROM %s WHERE data LIKE '%%0%%' LIMIT %u) t",
                    t, sysbench.opt.table_size))
+
+      show_index_stat(string.format("sbtest%u", i))
+
    end
+
 end
 
 -- Implement parallel prepare and warmup commands, define 'prewarm' as an alias
@@ -281,32 +304,33 @@ function create_insert_data()
     local data             = string.rep('a', data_length - rand_data_length - 1) ..
         sysbench.rand.varstring(rand_data_length, rand_data_length) .. 'a'
 
---todofix random part ruins sql syntax
     return dateandtime, cashregisterid, customerid, productid, price, data
 end
 
 
 local t = sysbench.sql.type
--- todofix use force index only when index made
+
+
+
 local stmt_defs = {
    market_queries = {
       [[
-      SELECT price, customerid FROM sbtest%u FORCE INDEX (sbtest%u_marketsegment) where
-      (price >= ?) ORDER BY price, customerid LIMIT ?
+         SELECT price, customerid FROM sbtest%u %s
+         where (price >= ?) ORDER BY price, customerid LIMIT ?
       ]],
-      t.FLOAT, t.INT
-   },
-   pdc_queries = {
-      [[
-      SELECT price, dateandtime, customerid FROM sbtest%u FORCE INDEX (sbtest%u_pdc) where
-      (price >= ?) ORDER BY price, dateandtime, customerid LIMIT ?
-      ]],
-      t.DOUBLE, t.INT
+      t.INT, t.INT
    },
    register_queries = {
       [[
-      SELECT cashregisterid,price,customerid FROM sbtest%u FORCE INDEX (sbtest%u_registersegment) where
-      (cashregisterid > ?) ORDER BY cashregisterid,price,customerid LIMIT ?
+         SELECT cashregisterid,price,customerid FROM sbtest%u %s
+         where (cashregisterid > ?) ORDER BY cashregisterid,price,customerid LIMIT ?
+      ]],
+      t.INT, t.INT
+   },
+   pdc_queries = {
+      [[
+         SELECT price, dateandtime, customerid FROM sbtest%u %s
+         where (price >= ?) ORDER BY price, dateandtime, customerid LIMIT ?
       ]],
       t.INT, t.INT
    },
@@ -333,7 +357,18 @@ function prepare_for_each_table(key)
       then
          stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t))
       else
-         stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t, t))
+
+         -- ternary operators in Lua: x = condition and opt1 or opt2
+         local switch = {
+            ["market_queries"]   = (sysbench.opt.num_secondary_indexes > 0)
+               and string.format("FORCE INDEX (sbtest%u_marketsegment)", t) or "",
+            ["register_queries"] =  (sysbench.opt.num_secondary_indexes > 1)
+               and string.format("FORCE INDEX (sbtest%u_pdc)", t) or "",
+            ["pdc_queries"]      = (sysbench.opt.num_secondary_indexes > 2)
+               and string.format("FORCE INDEX (sbtest%u_registersegment)", t) or ""
+         }
+
+         stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t, switch[key]))
       end
 
       local nparam = #stmt_defs[key] - 1

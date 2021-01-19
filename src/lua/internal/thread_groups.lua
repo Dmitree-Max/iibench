@@ -46,7 +46,8 @@ end
 -- This event loop can work with muliple groups of threads.
 -- For that purpose global variable 'thread_groups' should
 -- be defined in benchmark script.end
--- group = {{event=func1, rate_controller=func2, rate=k, thread_amount=n}, {}, ...}
+-- thread_groups = {{id=i, event=func1, rate_controller=func2, rate=k, thread_amount=n}, {}, ...}
+-- id is any number or string.
 -- func1 is function as event(), func2 is functions witch controls sleeps period (optional),
 -- n is amount of threads in the group (im sum of groups threads_amount less then in --threads
 -- than all other threads go to the last group)
@@ -68,10 +69,11 @@ function thread_run(thread_id)
             event_func           = thread_groups[i].event
             rate_controller_func = thread_groups[i].rate_controller
             rate                 = thread_groups[i].rate
-            --print(thread_groups[i].rate_controller)
             break
          end
 
+        -- if total amount of threads more then sum of amounts in groups
+        -- all other threads rely to the last group
          if i == #thread_groups
          then
             event_func           = thread_groups[i].event
@@ -101,28 +103,33 @@ function thread_run(thread_id)
       if ret then
          break
       end
+      ffi.C.sb_event_stop(thread_id)
 
+      -- It supposed that rete controller return
       if rate_controller_func ~= nil and rate > 0
       then
          pcall(rate_controller_func, rate)
       end
 
-      ffi.C.sb_event_stop(thread_id)
+
    end
 end
 
 
+
+-- This function controls rate of thread's events in that way:
+-- It stores the last time it was called and calculate random
+-- exponentially distributed interval to the next event (with median 1sec/rate).
+-- When it called again it measure time and if it passed less time then 'inteval'
+-- it sleeps for the rest part of interval.
 function default_rate_controller(rate)
 
     local Tcur = gettimeofday()
-    --print("tcur: ", Tcur)
     local lambda = 1e6 / rate
-    --print("lambda: " .. lambda ..)
 
     local uniform_parameter = ffi.C.sb_rand_uniform_double()
     local interval = -lambda * math.log(uniform_parameter)
 
-    --print("interval: " .. interval)
     if Tnext == nil
     then
        Tnext = Tcur + interval
@@ -130,7 +137,6 @@ function default_rate_controller(rate)
        Tnext = Tnext + interval
        if Tnext > Tcur
        then
-         -- print("sleeping for: " .. Tnext - Tcur)
           ffi.C.usleep(Tnext - Tcur);
        end
     end

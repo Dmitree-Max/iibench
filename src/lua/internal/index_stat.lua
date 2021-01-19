@@ -16,6 +16,8 @@
 
 
 
+-- This functions queries information about
+-- indexes in innoDB buffer poll and prints it to std out
 function show_index_stat(table_name)
    local drv = sysbench.sql.driver()
    local con = drv:connect()
@@ -87,15 +89,23 @@ function show_index_stat(table_name)
       print("Error! Can't query statistic from information schema")
    else
       print("INDEX_TYPE | PAGES | PCT_OF_BUFFER_POOL | PCT_OF_INDEX")
-      local primary_index = format_array(result:fetch_row())
+      part_lengths = {11, 7, 20, 13}                  -- lengths of headers
+      local primary_index = format_array(result:fetch_row(), part_lengths)
       print(primary_index)
-      local secondary_index = format_array(result:fetch_row())
-      print(secondary_index)
+
+      secondary_index_row = result:fetch_row()
+      if secondary_index_row ~= nil
+      then
+         local secondary_index = format_array(secondary_index_row, part_lengths)
+         print(secondary_index)
+      end
    end
 end
 
-function format_array(arr)
-   part_lengths = {11, 7, 20, 13}
+
+-- This function just make a string from array where each element
+-- of array around with spaces to have length from part_lengths
+function format_array(arr, part_lengths)
    assert(#arr > 3, "Function format_array requires more then 3 array values")
    local string = ""
    for k, v in pairs(arr)

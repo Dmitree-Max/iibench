@@ -35,7 +35,6 @@ end
 -- Command line options
 sysbench.cmdline.options = {
 
-
 -- Subject field parameters
    cashregisters =
       {"# cash registers", 1000},
@@ -75,18 +74,17 @@ sysbench.cmdline.options = {
       {"When True, allow table to grow to max_table_rows, then delete oldest", false},
    num_secondary_indexes =
       {"Number of secondary indexes (0 to 3)", 3},
-
--- todofix test partions
    num_partitions =
       {"Use range partitioning when not 0", 0},
    rows_per_partition =
       {"Number of rows per partition. If 0 this is computed as max_rows/num_partitions", 0},
    fill_table =
-      {"Put max_table_rows rows in table", true},
+      {"Put table_size rows in table", true},
 
+
+-- other options
    tables =
       {"Number of tables", 1},
-
    reconnect =
       {"Reconnect after every N events. The default (0) is to not reconnect",
        0},
@@ -135,12 +133,29 @@ function cmd_warmup()
    sysbench.opt.threads do
       local t = "sbtest" .. i
       print("Preloading table " .. t)
---[[
       con:query("ANALYZE TABLE sbtest" .. i)
+
+      con:query(string.format([[SELECT count(cashregisterid) FROM sbtest1
+      WHERE cashregisterid like '%%0%%']], t))
+
+       --[[
+
+
+       con:query(string.format(
+                   "SELECT AVG(price) FROM " ..
+                      "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
+                      "LIMIT %u) t",
+                   t, sysbench.opt.table_size))
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      "(SELECT * FROM %s WHERE data LIKE '%%0%%' LIMIT %u) t",
+                   t, sysbench.opt.table_size))
+
+
 
       con:query(string.format(
                    "SELECT AVG(price) FROM " ..
-                      "(SELECT * FROM %s FORCE KEY (%s_marketsegment) " ..
+                      "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
                       "LIMIT %u) t",
                    t, t, sysbench.opt.table_size))
 
@@ -155,12 +170,12 @@ function cmd_warmup()
                       "(SELECT * FROM %s FORCE KEY (%s_pdc) " ..
                       "LIMIT %u) t",
                    t, t, sysbench.opt.table_size))
-        ]]
+
       con:query(string.format(
                    "SELECT COUNT(*) FROM " ..
                       "(SELECT * FROM %s WHERE data LIKE '%%0%%' LIMIT %u) t",
                    t, sysbench.opt.table_size))
-
+ ]]
       show_index_stat(string.format("sbtest%u", i))
 
    end
@@ -183,22 +198,23 @@ function create_table(drv, con, table_num)
    local extra_table_options = ""
    local query
    local partition_options = ""
+   local rows_per_part = 0
 
    if (sysbench.opt.num_partitions > 0) then
-      if (FLAGS.rows_per_partition > 0) then
-         local rows_per_part = FLAGS.rows_per_partition
+      if (sysbench.opt.rows_per_partition > 0) then
+         rows_per_part = sysbench.opt.rows_per_partition
       else
-         local rows_per_part = FLAGS.max_rows / FLAGS.num_partitions
+         rows_per_part = sysbench.opt.table_size / sysbench.opt.num_partitions
       end
 
       partition_options = "partition by range( transactionid ) ("
 
-      for i = 0, sysbench.opt.num_partitions - 1 do
-         partition_options = partition_options +
-            string.format(" partition p%d values less than (%d),\n", i, (i+1)*rows_per_part)
+      for i = 1, sysbench.opt.num_partitions - 1 do
+         partition_options = partition_options ..
+            string.format(" partition p%d values less than (%d),\n", i, i*rows_per_part)
       end
-      partition_options = partition_options +
-         string.format(" partition p%d values less than (MAXVALUE)\n)", (FLAGS.num_partitions - 1))
+      partition_options = partition_options ..
+         string.format(" partition p%d values less than (MAXVALUE)\n)", sysbench.opt.num_partitions)
    end
 
    print(string.format("Creating table 'sbtest%d'...", table_num))
@@ -268,7 +284,6 @@ function make_insert_query_string()
     return string.format("('%s', %d, %d, %d, %f, '%s')", create_insert_data())
 end
 
-
 local function get_table_num()
    return sysbench.rand.uniform(1, sysbench.opt.tables)
 end
@@ -293,7 +308,6 @@ function create_insert_data()
     local productid        = sysbench.rand.uniform(0, sysbench.opt.products)
     local price            = get_price(customerid)
 
-
 --todofix do we use constant random buffer ?
     local data_length      = sysbench.rand.uniform(sysbench.opt.data_length_min, sysbench.opt.data_length_max)
     local rand_data_length = math.floor(sysbench.opt.data_random_pct / 100 * data_length)
@@ -309,9 +323,6 @@ end
 
 
 local t = sysbench.sql.type
-
-
-
 local stmt_defs = {
    market_queries = {
       [[
@@ -357,7 +368,6 @@ function prepare_for_each_table(key)
       then
          stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t))
       else
-
          -- ternary operators in Lua: x = condition and opt1 or opt2
          local switch = {
             ["market_queries"]   = (sysbench.opt.num_secondary_indexes > 0)
@@ -367,7 +377,6 @@ function prepare_for_each_table(key)
             ["pdc_queries"]      = (sysbench.opt.num_secondary_indexes > 2)
                and string.format("FORCE INDEX (sbtest%u_registersegment)", t) or ""
          }
-
          stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t, switch[key]))
       end
 
@@ -466,8 +475,6 @@ function cleanup()
 end
 
 
-
-
 function begin()
    stmt.begin:execute()
 end
@@ -475,7 +482,6 @@ end
 function commit()
    stmt.commit:execute()
 end
-
 
 
 function execute_market_queries()

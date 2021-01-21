@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 [![Latest Release][release-badge]][release-url]
 [![Build Status][travis-badge]][travis-url]
 [![Debian Packages][deb-badge]][deb-url]
@@ -308,3 +309,7 @@ For more information on SemVer, please visit [http://semver.org/](http://semver.
 [deb-url]: https://packagecloud.io/akopytov/sysbench?filter=debs
 [rpm-badge]: https://img.shields.io/badge/Packages-RPM-blue.svg?style=flat
 [rpm-url]: https://packagecloud.io/akopytov/sysbench?filter=rpms
+=======
+# iibench
+Implementation iibench in sysbench
+>>>>>>> badf89f1b4f0b77d14fbbdd7e89b72c22762a6e6

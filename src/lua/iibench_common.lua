@@ -129,53 +129,46 @@ function cmd_warmup()
    con:query("SET max_heap_table_size=2*1024*1024*1024")
 
 
+
    for i = sysbench.tid % sysbench.opt.threads + 1, sysbench.opt.tables,
    sysbench.opt.threads do
       local t = "sbtest" .. i
       print("Preloading table " .. t)
+
+      print("\nstat before warmup:")
+      show_index_stat(string.format("sbtest%u", i))
       con:query("ANALYZE TABLE sbtest" .. i)
 
-      con:query(string.format([[SELECT count(cashregisterid) FROM sbtest1
-      WHERE cashregisterid like '%%0%%']], t))
-
-       --[[
-
-
-       con:query(string.format(
-                   "SELECT AVG(price) FROM " ..
+--[[
+      con:query(string.format(
+                   "SELECT AVG(transactionid) FROM " ..
                       "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
                       "LIMIT %u) t",
                    t, sysbench.opt.table_size))
-      con:query(string.format(
+
+     con:query(string.format(
                    "SELECT COUNT(*) FROM " ..
                       "(SELECT * FROM %s WHERE data LIKE '%%0%%' LIMIT %u) t",
                    t, sysbench.opt.table_size))
 
+     con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      "%s FORCE INDEX (%s_marketsegment) WHERE customerid like '%%0%%'", t, t))
+     con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      "%s WHERE cashregisterid like '%%0%%'", t))
+     con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      "%s WHERE dateandtime like '%%0%%'", t))
+]]
 
-
-      con:query(string.format(
-                   "SELECT AVG(price) FROM " ..
-                      "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
-                      "LIMIT %u) t",
-                   t, t, sysbench.opt.table_size))
-
-      con:query(string.format(
-                   "SELECT AVG(price) FROM " ..
-                      "(SELECT * FROM %s FORCE KEY (%s_registersegment) " ..
-                      "LIMIT %u) t",
-                   t, t, sysbench.opt.table_size))
-
-      con:query(string.format(
-                   "SELECT AVG(price) FROM " ..
-                      "(SELECT * FROM %s FORCE KEY (%s_pdc) " ..
-                      "LIMIT %u) t",
-                   t, t, sysbench.opt.table_size))
-
-      con:query(string.format(
-                   "SELECT COUNT(*) FROM " ..
-                      "(SELECT * FROM %s WHERE data LIKE '%%0%%' LIMIT %u) t",
-                   t, sysbench.opt.table_size))
- ]]
+      con:query("CREATE TABLE BLACKHOLE_sbtest1 LIKE sbtest1;")
+      con:query("ALTER TABLE BLACKHOLE_sbtest1 ENGINE = BLACKHOLE;")
+      con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 " ..
+      " FORCE INDEX (sbtest1_registersegment) ORDER BY cashregisterid;")
+      con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 ORDER BY dateandtime;")
+      con:query("DROP TABLE IF EXISTS BLACKHOLE_sbtest1;")
+      print("\nstat after warmup:")
       show_index_stat(string.format("sbtest%u", i))
 
    end
@@ -222,12 +215,12 @@ function create_table(drv, con, table_num)
    query = string.format([[
    CREATE TABLE sbtest%d(
    transactionid BIGINT NOT NULL AUTO_INCREMENT,
-   dateandtime datetime,
-   cashregisterid int not null,
-   customerid int not null,
-   productid int not null,
-   price float not null,
-   data varchar(%d),
+   dateandtime datetime NOT NULL,
+   cashregisterid int NOT NULL,
+   customerid int NOT NULL,
+   productid int NOT NULL,
+   price float NOT NULL,
+   data varchar(%d) NOT NULL,
    primary key (transactionid)
    ) %s %s %s
    ]],

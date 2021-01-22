@@ -22,6 +22,8 @@ require("internal/thread_groups")
 require("internal/index_stat")
 
 function init()
+   assert(sysbench.version > '1.1.0', "There is a bug with preparing float values in" ..
+    " sysbench versions under 1.1.1. Please use iibench with newer sysbench version.")
    assert(event ~= nil,
           "this script is meant to be included by other OLTP scripts and " ..
              "should not be called directly.")
@@ -119,6 +121,7 @@ end
 --
 -- PS. Currently, this command is only meaningful for MySQL/InnoDB benchmarks
 function cmd_warmup()
+
    local drv = sysbench.sql.driver()
    local con = drv:connect()
 
@@ -139,35 +142,111 @@ function cmd_warmup()
       show_index_stat(string.format("sbtest%u", i))
       con:query("ANALYZE TABLE sbtest" .. i)
 
+
 --[[
+--41 all 4
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( PRIMARY )",
+                   t, sysbench.opt.table_size))
+
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( %s_marketsegment )",
+                   t, t))
+
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( %s_registersegment )",
+                   t, t))
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( %s_pdc )",
+                   t, t))
+
+
+
+--41
+      con:query(string.format(
+      "SElECT AVG(price) from" ..
+                   "(SELECT * FROM " ..
+                      " %s FORCE KEY (PRIMARY) where data like '%%0%%') t ",
+                   t, sysbench.opt.table_size))
+
+
+-- 41
+      con:query(string.format(
+      "SElECT AVG(price) from" ..
+                   "(SELECT * FROM " ..
+                      " %s FORCE KEY (PRIMARY) where customerid=0) t ",
+                   t, sysbench.opt.table_size))
+
+
+
+-- 22
+      con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      " %s FORCE KEY (PRIMARY) where transactionid=0",
+                   t, sysbench.opt.table_size))
+
+--41
+      con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      " %s FORCE KEY (PRIMARY) where customerid=0",
+                   t, sysbench.opt.table_size))
+
+--22, 100
+      con:query(string.format(
+                   "SELECT 1 FROM " ..
+                      " (SELECT * FROM %s) t LIMIT 1",
+                   t))
+
+-- 22,100
+      con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      " %s FORCE KEY (PRIMARY) where customerid=0",
+                   t, sysbench.opt.table_size))
+
+-- 41,100
+
       con:query(string.format(
                    "SELECT AVG(transactionid) FROM " ..
                       "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
                       "LIMIT %u) t",
                    t, sysbench.opt.table_size))
 
+-- 41,100
+
      con:query(string.format(
                    "SELECT COUNT(*) FROM " ..
-                      "(SELECT * FROM %s WHERE data LIKE '%%0%%' LIMIT %u) t",
+                      "(SELECT * FROM %s WHERE transactionid  LIKE '%%0%%' LIMIT %u) t",
                    t, sysbench.opt.table_size))
+
+
+-- 22, 100
 
      con:query(string.format(
                    "SELECT count(*) FROM " ..
                       "%s FORCE INDEX (%s_marketsegment) WHERE customerid like '%%0%%'", t, t))
+
      con:query(string.format(
                    "SELECT count(*) FROM " ..
                       "%s WHERE cashregisterid like '%%0%%'", t))
+
      con:query(string.format(
                    "SELECT count(*) FROM " ..
                       "%s WHERE dateandtime like '%%0%%'", t))
-]]
 
+
+-- 42,100
       con:query("CREATE TABLE BLACKHOLE_sbtest1 LIKE sbtest1;")
       con:query("ALTER TABLE BLACKHOLE_sbtest1 ENGINE = BLACKHOLE;")
       con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 " ..
       " FORCE INDEX (sbtest1_registersegment) ORDER BY cashregisterid;")
       con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 ORDER BY dateandtime;")
       con:query("DROP TABLE IF EXISTS BLACKHOLE_sbtest1;")
+]]
+
       print("\nstat after warmup:")
       show_index_stat(string.format("sbtest%u", i))
 

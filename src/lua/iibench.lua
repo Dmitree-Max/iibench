@@ -57,13 +57,13 @@ function prepare_thread_groups()
    thread_groups = {
       {
          event = main_event,
-         thread_amount = 1,
+         thread_amount = sysbench.opt.insert_threads,
          rate = sysbench.opt.insert_rate,
          rate_controller = default_rate_controller
       },
       {
          event = event,
-         thread_amount = 0,                -- all other threads
+         thread_amount = sysbench.opt.select_threads,                -- 0 all other threads
          rate = sysbench.opt.select_rate,
          rate_controller = default_rate_controller
       }

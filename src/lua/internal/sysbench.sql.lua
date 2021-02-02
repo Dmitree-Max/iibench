@@ -228,7 +228,7 @@ function connection_methods.check_error(self, rs, query)
    end
 
    if self.sql_state == nil or self.sql_errmsg == nil then
-      -- It must be an API error, don't bother trying to downgrade it an
+      -- It must be an API error, dont bother trying to downgrade it an
       -- ignorable error
       error("SQL API error", 3)
    end
@@ -338,7 +338,7 @@ function sql_param.set(self, value)
    elseif btype == sql_type.FLOAT or
       btype == sql_type.DOUBLE
    then
-      self.buffer[1] = value
+      self.buffer[0] = value
    elseif btype == sql_type.CHAR or
       btype == sql_type.VARCHAR
    then

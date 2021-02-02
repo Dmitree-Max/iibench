@@ -22,7 +22,7 @@ require("internal/thread_groups")
 require("internal/index_stat")
 
 function init()
-   assert(sysbench.version > '1.1.0', "There is a bug with preparing float values in" ..
+   assert(sysbench.version >= '1.1.0', "There is a bug with preparing float values in" ..
     " sysbench versions under 1.1.1. Please use iibench with newer sysbench version.")
    assert(event ~= nil,
           "this script is meant to be included by other OLTP scripts and " ..
@@ -65,6 +65,10 @@ sysbench.cmdline.options = {
       {"Average rate for inserts", 0},
    select_rate =
       {"Average rate for selects", 0},
+   insert_threads =
+      {"Amount of threads for inserts", 1},
+   select_threads =
+      {"Amount of threads for selects, default 0 means all others", 0},
 
 
 -- Table parameters
@@ -143,71 +147,8 @@ function cmd_warmup()
       con:query("ANALYZE TABLE sbtest" .. i)
 
 
---[[
---41 all 4
-      con:query(string.format(
-                   "SELECT COUNT(*) FROM " ..
-                      " %s FORCE KEY ( PRIMARY )",
-                   t, sysbench.opt.table_size))
 
-      con:query(string.format(
-                   "SELECT COUNT(*) FROM " ..
-                      " %s FORCE KEY ( %s_marketsegment )",
-                   t, t))
-
-      con:query(string.format(
-                   "SELECT COUNT(*) FROM " ..
-                      " %s FORCE KEY ( %s_registersegment )",
-                   t, t))
-      con:query(string.format(
-                   "SELECT COUNT(*) FROM " ..
-                      " %s FORCE KEY ( %s_pdc )",
-                   t, t))
-
-
-
---41
-      con:query(string.format(
-      "SElECT AVG(price) from" ..
-                   "(SELECT * FROM " ..
-                      " %s FORCE KEY (PRIMARY) where data like '%%0%%') t ",
-                   t, sysbench.opt.table_size))
-
-
--- 41
-      con:query(string.format(
-      "SElECT AVG(price) from" ..
-                   "(SELECT * FROM " ..
-                      " %s FORCE KEY (PRIMARY) where customerid=0) t ",
-                   t, sysbench.opt.table_size))
-
-
-
--- 22
-      con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      " %s FORCE KEY (PRIMARY) where transactionid=0",
-                   t, sysbench.opt.table_size))
-
---41
-      con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      " %s FORCE KEY (PRIMARY) where customerid=0",
-                   t, sysbench.opt.table_size))
-
---22, 100
-      con:query(string.format(
-                   "SELECT 1 FROM " ..
-                      " (SELECT * FROM %s) t LIMIT 1",
-                   t))
-
--- 22,100
-      con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      " %s FORCE KEY (PRIMARY) where customerid=0",
-                   t, sysbench.opt.table_size))
-
--- 41,100
+--96,76
 
       con:query(string.format(
                    "SELECT AVG(transactionid) FROM " ..
@@ -215,30 +156,114 @@ function cmd_warmup()
                       "LIMIT %u) t",
                    t, sysbench.opt.table_size))
 
--- 41,100
+
 
      con:query(string.format(
                    "SELECT COUNT(*) FROM " ..
-                      "(SELECT * FROM %s WHERE transactionid  LIKE '%%0%%' LIMIT %u) t",
+                      "(SELECT * FROM %s WHERE data  LIKE '%%0%%' LIMIT %u) t",
+                   t, sysbench.opt.table_size))
+
+      if sysbench.opt.num_secondary_indexes > 0
+      then
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( %s_marketsegment ) WHERE customerid like '%%0%%'",
+                   t, t))
+      end
+      if sysbench.opt.num_secondary_indexes > 1
+      then
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( %s_registersegment ) WHERE cashregisterid like '%%0%%'",
+                   t, t))
+      end
+      if sysbench.opt.num_secondary_indexes > 2
+      then
+      con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      " %s FORCE KEY ( %s_pdc ) WHERE dateandtime like '%%0%%'",
+                   t, t))
+      end
+--[[
+--92, 27
+      con:query(string.format(
+      "SElECT AVG(price) from" ..
+                   "(SELECT * FROM " ..
+                      " %s where data like '%%0%%') t ",
                    t, sysbench.opt.table_size))
 
 
--- 22, 100
 
+      con:query(string.format(
+      "SElECT AVG(price) from" ..
+                   "(SELECT * FROM " ..
+                      " %s FORCE KEY (PRIMARY) where customerid=0) t ",
+                   t, sysbench.opt.table_size))
+
+--[[
+
+-- 96, 27
+
+      con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      " %s FORCE KEY (PRIMARY) where transactionid=0",
+                   t, sysbench.opt.table_size))
+
+
+      con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      " %s FORCE KEY (PRIMARY) where customerid=0",
+                   t, sysbench.opt.table_size))
+
+
+      con:query(string.format(
+                   "SELECT 1 FROM " ..
+                      " (SELECT * FROM %s) t LIMIT 1",
+                   t))
+
+]]
+--[[
+-- 96, 27
+      con:query(string.format(
+                   "SELECT count(*) FROM " ..
+                      " %s FORCE KEY (PRIMARY) where customerid=0",
+                   t, sysbench.opt.table_size))
+
+-- 96, 51
+]]
+--[[
+      con:query(string.format(
+                   "SELECT AVG(transactionid) FROM " ..
+                      "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
+                      "LIMIT %u) t",
+                   t, sysbench.opt.table_size))
+
+
+
+     con:query(string.format(
+                   "SELECT COUNT(*) FROM " ..
+                      "(SELECT * FROM %s WHERE data  LIKE '%%0%%' LIMIT %u) t",
+                   t, sysbench.opt.table_size))
+
+
+-- 18, 84
+
+--[[
      con:query(string.format(
                    "SELECT count(*) FROM " ..
                       "%s FORCE INDEX (%s_marketsegment) WHERE customerid like '%%0%%'", t, t))
 
      con:query(string.format(
                    "SELECT count(*) FROM " ..
-                      "%s WHERE cashregisterid like '%%0%%'", t))
+                      "%s FORCE INDEX (%s_registersegment) WHERE cashregisterid like '%%0%%'", t, t))
 
      con:query(string.format(
                    "SELECT count(*) FROM " ..
-                      "%s WHERE dateandtime like '%%0%%'", t))
+                      "%s  FORCE INDEX (%s_pdc) WHERE dateandtime like '%%0%%'", t, t))
 
 
--- 42,100
+-- 96, 63
+--[[
       con:query("CREATE TABLE BLACKHOLE_sbtest1 LIKE sbtest1;")
       con:query("ALTER TABLE BLACKHOLE_sbtest1 ENGINE = BLACKHOLE;")
       con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 " ..

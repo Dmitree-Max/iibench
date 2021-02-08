@@ -24,13 +24,17 @@ require("iibench_common")
 
 function prepare_statements()
   -- first thread inserts, other selects
-   if sysbench.opt.threads > 1
+   if sysbench.opt.threads - sysbench.opt.insert_threads > 0
    then
       prepare_market_queries()
       prepare_register_queries()
       prepare_pdc_queries()
    end
    prepare_thread_groups()
+   if sysbench.opt.instant_delete
+   then
+       prepare_deletes()
+   end
 end
 
 function main_event()

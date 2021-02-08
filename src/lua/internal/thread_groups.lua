@@ -105,7 +105,7 @@ function thread_run(thread_id)
       end
       ffi.C.sb_event_stop(thread_id)
 
-      -- It supposed that rete controller return
+      -- It supposed that rete controller return execution flow after some pause
       if rate_controller_func ~= nil and rate > 0
       then
          pcall(rate_controller_func, rate)

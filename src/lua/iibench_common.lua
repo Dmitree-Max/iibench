@@ -50,7 +50,7 @@ sysbench.cmdline.options = {
 
 -- Query parameters
    rows_per_commit =
-      {"rows inserted per transaction", 10},
+      {"rows inserted per transaction", 1000},
    rows_per_query =
       {"limit of selected rows", 10},
    data_length_max =
@@ -73,11 +73,9 @@ sysbench.cmdline.options = {
 
 -- Table parameters
    table_size =
-      {"Maximum number of rows in table", 10000},
-
--- todofix Do we want to delete rows?
-   with_max_table_rows =
-      {"When True, allow table to grow to max_table_rows, then delete oldest", false},
+      {"Number of rows in table", 10000},
+   max_table_size =
+      {"Max number of rows in table", 10000000},
    num_secondary_indexes =
       {"Number of secondary indexes (0 to 3)", 3},
    num_partitions =
@@ -86,6 +84,8 @@ sysbench.cmdline.options = {
       {"Number of rows per partition. If 0 this is computed as max_rows/num_partitions", 0},
    fill_table =
       {"Put table_size rows in table", true},
+   instant_delete =
+      {"Do we want delete after insert, when table more than max size", false},
 
 
 -- other options
@@ -442,11 +442,10 @@ local stmt_defs = {
       ]],
       t.INT, t.INT
    },
-   inserts = {
+   deletes = {
       [[
-      INSERT INTO sbtest%u (dateandtime, cashregisterid, customerid, productid, price, data)
-      VALUES
-      ]]
+         DELETE FROM sbtest%u ORDER BY transactionid LIMIT ?
+      ]], t.INT
       }
 }
 
@@ -461,7 +460,7 @@ end
 function prepare_for_each_table(key)
    for t = 1, sysbench.opt.tables do
 
-      if key == "inserts"
+      if key == "deletes"
       then
          stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t))
       else
@@ -470,9 +469,9 @@ function prepare_for_each_table(key)
             ["market_queries"]   = (sysbench.opt.num_secondary_indexes > 0)
                and string.format("FORCE INDEX (sbtest%u_marketsegment)", t) or "",
             ["register_queries"] =  (sysbench.opt.num_secondary_indexes > 1)
-               and string.format("FORCE INDEX (sbtest%u_pdc)", t) or "",
+               and string.format("FORCE INDEX (sbtest%u_registersegment)", t) or "",
             ["pdc_queries"]      = (sysbench.opt.num_secondary_indexes > 2)
-               and string.format("FORCE INDEX (sbtest%u_registersegment)", t) or ""
+               and string.format("FORCE INDEX (sbtest%u_pdc)", t) or ""
          }
          stmt[t][key] = con:prepare(string.format(stmt_defs[key][1], t, switch[key]))
       end
@@ -506,8 +505,15 @@ function prepare_for_each_table(key)
 end
 
 
-function prepare_inserts()
-   prepare_for_each_table("inserts")
+function prepare_deletes()
+   -- variables for deletes
+   if (sysbench.opt.instant_delete)
+   then
+      insert_count = 0
+      delete_flag = false
+   end
+
+   prepare_for_each_table("deletes")
 end
 
 function prepare_market_queries()
@@ -630,9 +636,32 @@ function execute_inserts()
    end
    con:bulk_insert_done()
 
---todofix bulk_insert ? Need prepare ?
-
+   if sysbench.opt.instant_delete
+   then
+      if delete_flag
+      then
+         execute_deletes(tnum)
+      else
+         insert_count = insert_count + 1
+         check_delete_start()
+      end
+   end
 end
+
+
+function check_delete_start()
+   if insert_count > (sysbench.opt.max_table_size - sysbench.opt.table_size) /
+      (sysbench.opt.rows_per_commit * sysbench.opt.insert_threads / sysbench.opt.tables)
+   then
+      delete_flag = true
+   end
+end
+
+function execute_deletes(tnum)
+   param[tnum].deletes[1]:set(sysbench.opt.rows_per_commit)
+   stmt[tnum].deletes:execute()
+end
+
 
 -- Re-prepare statements if we have reconnected, which is possible when some of
 -- the listed error codes are in the --mysql-ignore-errors list

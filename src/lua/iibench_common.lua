@@ -24,9 +24,11 @@ require("internal/index_stat")
 function init()
    assert(sysbench.version >= '1.1.0', "There is a bug with preparing float values in" ..
     " sysbench versions under 1.1.1. Please use iibench with newer sysbench version.")
+
    assert(event ~= nil,
-          "this script is meant to be included by other OLTP scripts and " ..
+          "this script is meant to be included by other scripts and " ..
              "should not be called directly.")
+
 end
 
 if sysbench.cmdline.command == nil then
@@ -63,18 +65,24 @@ sysbench.cmdline.options = {
       {"Create secondary index at end", false},
    insert_rate =
       {"Average rate for inserts", 0},
+   inserts_per_second =
+      {"Average rate for all insert threads at once", 0},
    select_rate =
       {"Average rate for selects", 0},
+   query_rate =
+      {"An alias for select_rate", 0},
    insert_threads =
       {"Amount of threads for inserts", 1},
    select_threads =
       {"Amount of threads for selects, default 0 means all others", 0},
+   query_threads =
+      {"An alias for 'select_threads'", 0},
 
 
 -- Table parameters
    table_size =
       {"Number of rows in table", 10000},
-   max_table_size =
+   max_table_rows =
       {"Max number of rows in table", 10000000},
    num_secondary_indexes =
       {"Number of secondary indexes (0 to 3)", 3},
@@ -84,7 +92,7 @@ sysbench.cmdline.options = {
       {"Number of rows per partition. If 0 this is computed as max_rows/num_partitions", 0},
    fill_table =
       {"Put table_size rows in table", true},
-   instant_delete =
+   with_max_table_rows =
       {"Do we want delete after insert, when table more than max size", false},
 
 
@@ -94,6 +102,9 @@ sysbench.cmdline.options = {
    reconnect =
       {"Reconnect after every N events. The default (0) is to not reconnect",
        0},
+   stat =
+      {"This option controls statistic print for warm up command",
+       false},
    mysql_storage_engine =
       {"Storage engine, if MySQL is used", "innodb"},
    create_table_options =
@@ -142,8 +153,11 @@ function cmd_warmup()
       local t = "sbtest" .. i
       print("Preloading table " .. t)
 
-      print("\nstat before warmup:")
-      show_index_stat(string.format("sbtest%u", i))
+      if (sysbench.opt.stat)
+      then
+         print("\nstat before warmup:")
+         show_index_stat(string.format("sbtest%u", i))
+      end
       con:query("ANALYZE TABLE sbtest" .. i)
 
 
@@ -158,7 +172,7 @@ function cmd_warmup()
 
 
 
-     con:query(string.format(
+      con:query(string.format(
                    "SELECT COUNT(*) FROM " ..
                       "(SELECT * FROM %s WHERE data  LIKE '%%0%%' LIMIT %u) t",
                    t, sysbench.opt.table_size))
@@ -184,96 +198,13 @@ function cmd_warmup()
                       " %s FORCE KEY ( %s_pdc ) WHERE dateandtime like '%%0%%'",
                    t, t))
       end
---[[
---92, 27
-      con:query(string.format(
-      "SElECT AVG(price) from" ..
-                   "(SELECT * FROM " ..
-                      " %s where data like '%%0%%') t ",
-                   t, sysbench.opt.table_size))
 
+      if (sysbench.opt.stat)
+      then
+         print("\nstat after warmup:")
+         show_index_stat(string.format("sbtest%u", i))
+      end
 
-
-      con:query(string.format(
-      "SElECT AVG(price) from" ..
-                   "(SELECT * FROM " ..
-                      " %s FORCE KEY (PRIMARY) where customerid=0) t ",
-                   t, sysbench.opt.table_size))
-
---[[
-
--- 96, 27
-
-      con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      " %s FORCE KEY (PRIMARY) where transactionid=0",
-                   t, sysbench.opt.table_size))
-
-
-      con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      " %s FORCE KEY (PRIMARY) where customerid=0",
-                   t, sysbench.opt.table_size))
-
-
-      con:query(string.format(
-                   "SELECT 1 FROM " ..
-                      " (SELECT * FROM %s) t LIMIT 1",
-                   t))
-
-]]
---[[
--- 96, 27
-      con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      " %s FORCE KEY (PRIMARY) where customerid=0",
-                   t, sysbench.opt.table_size))
-
--- 96, 51
-]]
---[[
-      con:query(string.format(
-                   "SELECT AVG(transactionid) FROM " ..
-                      "(SELECT * FROM %s FORCE KEY (PRIMARY) " ..
-                      "LIMIT %u) t",
-                   t, sysbench.opt.table_size))
-
-
-
-     con:query(string.format(
-                   "SELECT COUNT(*) FROM " ..
-                      "(SELECT * FROM %s WHERE data  LIKE '%%0%%' LIMIT %u) t",
-                   t, sysbench.opt.table_size))
-
-
--- 18, 84
-
---[[
-     con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      "%s FORCE INDEX (%s_marketsegment) WHERE customerid like '%%0%%'", t, t))
-
-     con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      "%s FORCE INDEX (%s_registersegment) WHERE cashregisterid like '%%0%%'", t, t))
-
-     con:query(string.format(
-                   "SELECT count(*) FROM " ..
-                      "%s  FORCE INDEX (%s_pdc) WHERE dateandtime like '%%0%%'", t, t))
-
-
--- 96, 63
---[[
-      con:query("CREATE TABLE BLACKHOLE_sbtest1 LIKE sbtest1;")
-      con:query("ALTER TABLE BLACKHOLE_sbtest1 ENGINE = BLACKHOLE;")
-      con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 " ..
-      " FORCE INDEX (sbtest1_registersegment) ORDER BY cashregisterid;")
-      con:query("INSERT INTO BLACKHOLE_sbtest1 SELECT * FROM sbtest1 ORDER BY dateandtime;")
-      con:query("DROP TABLE IF EXISTS BLACKHOLE_sbtest1;")
-]]
-
-      print("\nstat after warmup:")
-      show_index_stat(string.format("sbtest%u", i))
 
    end
 
@@ -287,7 +218,6 @@ sysbench.cmdline.commands = {
    prewarm = {cmd_warmup, sysbench.cmdline.PARALLEL_COMMAND}
 }
 
---todofix do we drop after insert ?
 
 function create_table(drv, con, table_num)
    local id_def
@@ -405,7 +335,6 @@ function create_insert_data()
     local productid        = sysbench.rand.uniform(0, sysbench.opt.products)
     local price            = get_price(customerid)
 
---todofix do we use constant random buffer ?
     local data_length      = sysbench.rand.uniform(sysbench.opt.data_length_min, sysbench.opt.data_length_max)
     local rand_data_length = math.floor(sysbench.opt.data_random_pct / 100 * data_length)
     if data_length == rand_data_length
@@ -507,7 +436,7 @@ end
 
 function prepare_deletes()
    -- variables for deletes
-   if (sysbench.opt.instant_delete)
+   if (sysbench.opt.with_max_table_rows)
    then
       insert_count = 0
       delete_flag = false
@@ -636,7 +565,7 @@ function execute_inserts()
    end
    con:bulk_insert_done()
 
-   if sysbench.opt.instant_delete
+   if sysbench.opt.with_max_table_rows
    then
       if delete_flag
       then
@@ -650,7 +579,7 @@ end
 
 
 function check_delete_start()
-   if insert_count > (sysbench.opt.max_table_size - sysbench.opt.table_size) /
+   if insert_count > (sysbench.opt.max_table_rows - sysbench.opt.table_size) /
       (sysbench.opt.rows_per_commit * sysbench.opt.insert_threads / sysbench.opt.tables)
    then
       delete_flag = true

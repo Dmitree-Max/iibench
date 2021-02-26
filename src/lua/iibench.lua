@@ -23,7 +23,6 @@ require("iibench_common")
 
 
 function prepare_statements()
-  -- first thread inserts, other selects
    if sysbench.opt.threads - sysbench.opt.insert_threads > 0
    then
       prepare_market_queries()
@@ -37,7 +36,7 @@ function prepare_statements()
    end
 end
 
-function main_event()
+function insert_event()
    execute_inserts()
 
    check_reconnect()
@@ -58,16 +57,47 @@ end
 
 
 function prepare_thread_groups()
+
+   -- resolve alias
+   if sysbench.opt.query_threads ~= 0
+   then
+      if sysbench.opt.select_threads == 0
+      then
+         sysbench.opt.select_threads = sysbench.opt.query_threads
+      else
+         print('query_threads is an alias for select_threads, but they have ' ..
+            'different values')
+      end
+   end
+
+   if sysbench.opt.query_rate ~= 0
+   then
+      if sysbench.opt.select_rate == 0
+      then
+         sysbench.opt.select_rate = sysbench.opt.query_rate
+      else
+         print('query_rate is an alias for select_rate, but they have ' ..
+            'different values')
+      end
+   end
+
+
+   local insert_rate = sysbench.opt.inserts_per_second / sysbench.opt.insert_threads
+   if insert_rate == 0
+   then
+      insert_rate = sysbench.opt.insert_rate
+   end
+
    thread_groups = {
       {
-         event = main_event,
+         event = insert_event,
          thread_amount = sysbench.opt.insert_threads,
-         rate = sysbench.opt.insert_rate,
+         rate = insert_rate,
          rate_controller = default_rate_controller
       },
       {
          event = event,
-         thread_amount = sysbench.opt.select_threads,                -- 0 all other threads
+         thread_amount = sysbench.opt.select_threads,
          rate = sysbench.opt.select_rate,
          rate_controller = default_rate_controller
       }
